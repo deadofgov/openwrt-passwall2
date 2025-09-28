@@ -159,8 +159,8 @@ jobs:
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Server=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=n
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server=n
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=n
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Server=n
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Server=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Simple_Obfs=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_SingBox=n
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_tuic_client=n
@@ -182,8 +182,12 @@ jobs:
           cd sdk
           echo "Compiling core system libraries"
           
-          # Compile essential libraries first
-          make package/libs/pcre2/compile -j$(nproc) V=s || echo "pcre2 compilation failed"
+          # Install pcre2 which is required for shadowsocksr-libev
+          echo "Installing pcre2 for shadowsocksr-libev"
+          ./scripts/feeds install libpcre2
+          make package/libs/pcre2/compile -j$(nproc) V=s
+          
+          # Compile other essential libraries
           make package/libs/openssl/compile -j$(nproc) V=s || echo "openssl compilation failed"  
           make package/libs/zlib/compile -j$(nproc) V=s || echo "zlib compilation failed"
           
@@ -195,33 +199,40 @@ jobs:
           cd sdk
           echo "Starting packages compilation for NanoPI R2S (aarch64_generic)"
           
+          # Create logs directory
+          mkdir -p logs
+          
           # Compile core dependencies first
           echo "Compiling base dependencies"
-          make package/feeds/passwall_packages/chinadns-ng/compile -j$(nproc) V=s || echo "chinadns-ng failed, continuing..."
-          make package/feeds/passwall_packages/geoview/compile -j$(nproc) V=s || echo "geoview failed, continuing..."
-          make package/feeds/passwall_packages/tcping/compile -j$(nproc) V=s || echo "tcping failed, continuing..."
-          make package/feeds/passwall_packages/xray-core/compile -j$(nproc) V=s || echo "xray-core failed, continuing..."
-          make package/feeds/passwall_packages/v2ray-geodata/compile -j$(nproc) V=s || echo "v2ray-geodata failed, continuing..."
+          make package/feeds/passwall_packages/chinadns-ng/compile -j$(nproc) V=s 2>&1 | tee logs/chinadns-ng.log || echo "chinadns-ng failed"
+          make package/feeds/passwall_packages/geoview/compile -j$(nproc) V=s 2>&1 | tee logs/geoview.log || echo "geoview failed"
+          make package/feeds/passwall_packages/tcping/compile -j$(nproc) V=s 2>&1 | tee logs/tcping.log || echo "tcping failed"
+          make package/feeds/passwall_packages/xray-core/compile -j$(nproc) V=s 2>&1 | tee logs/xray-core.log || echo "xray-core failed"
+          make package/feeds/passwall_packages/v2ray-geodata/compile -j$(nproc) V=s 2>&1 | tee logs/v2ray-geodata.log || echo "v2ray-geodata failed"
           
           # Compile proxy clients with error handling
-          echo "Compiling proxy clients (with error handling)"
-          make package/feeds/passwall_packages/hysteria/compile -j$(nproc) V=s || echo "Hysteria compilation failed, continuing..."
-          make package/feeds/passwall_packages/shadowsocksr-libev/compile -j$(nproc) V=s || echo "shadowsocksr-libev failed, continuing..."
-          make package/feeds/passwall_packages/simple-obfs/compile -j$(nproc) V=s || echo "simple-obfs failed, continuing..."
-          make package/feeds/passwall_packages/v2ray-plugin/compile -j$(nproc) V=s || echo "v2ray-plugin failed, continuing..."
+          echo "Compiling proxy clients including shadowsocksr-libev"
+          make package/feeds/passwall_packages/hysteria/compile -j$(nproc) V=s 2>&1 | tee logs/hysteria.log || echo "Hysteria failed"
+          make package/feeds/passwall_packages/shadowsocksr-libev/compile -j$(nproc) V=s 2>&1 | tee logs/shadowsocksr-libev.log || echo "shadowsocksr-libev failed"
+          make package/feeds/passwall_packages/simple-obfs/compile -j$(nproc) V=s 2>&1 | tee logs/simple-obfs.log || echo "simple-obfs failed"
+          make package/feeds/passwall_packages/v2ray-plugin/compile -j$(nproc) V=s 2>&1 | tee logs/v2ray-plugin.log || echo "v2ray-plugin failed"
           
-          # Try to compile shadowsocks-libev instead of shadowsocksr-libev
-          echo "Trying alternative shadowsocks implementation"
-          make package/feeds/packages/shadowsocks-libev/compile -j$(nproc) V=s || echo "shadowsocks-libev failed, continuing..."
+          # Try to compile shadowsocks-libev from main packages
+          echo "Trying shadowsocks-libev from main packages"
+          make package/feeds/packages/shadowsocks-libev/compile -j$(nproc) V=s 2>&1 | tee logs/shadowsocks-libev.log || echo "shadowsocks-libev failed"
           
-          # Skip problematic packages
-          echo "Skipping problematic packages: shadowsocks-rust, naiveproxy, sing-box, tuic-client"
+          # Skip problematic Rust packages only
+          echo "Skipping only Rust packages: shadowsocks-rust, naiveproxy, sing-box, tuic-client"
           
-          # Compile main passwall2 package
-          echo "Compiling luci-app-passwall2"
-          make package/luci-app-passwall2/{clean,compile} -j$(nproc) V=s || echo "passwall2 compilation failed"
+          # Try minimal passwall2 compilation
+          echo "Compiling luci-app-passwall2 (minimal config)"
+          make package/luci-app-passwall2/{clean,compile} -j$(nproc) V=s 2>&1 | tee logs/passwall2.log || echo "passwall2 minimal compilation failed"
           
-          echo "Packages compilation completed"
+          # Check what was actually built
+          echo "Checking build results..."
+          find bin -name "*.ipk" -type f 2>/dev/null | tee logs/built_packages.log
+          
+          echo "Packages compilation completed (some may have failed)"
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
@@ -231,19 +242,46 @@ jobs:
           cd sdk
           mkdir -p ../nanopi_r2s_packages
           
-          # Find and copy all compiled packages
-          find bin/packages -name "*.ipk" | while read ipk; do
-            cp "$ipk" ../nanopi_r2s_packages/
+          echo "Looking for compiled packages..."
+          find . -name "*.ipk" -type f | head -20
+          
+          # Find and copy all compiled packages from various locations
+          find bin/packages -name "*.ipk" -type f 2>/dev/null | while read ipk; do
+            echo "Found package: $ipk"
+            cp "$ipk" ../nanopi_r2s_packages/ 2>/dev/null || true
           done
           
-          # Rename packages with NanoPI R2S prefix
-          cd ../nanopi_r2s_packages
-          for i in $(ls *.ipk 2>/dev/null || true); do 
-            mv "$i" "nanopi-r2s_$i"
+          # Also check staging_dir for packages
+          find staging_dir -name "*.ipk" -type f 2>/dev/null | while read ipk; do
+            echo "Found staged package: $ipk"
+            cp "$ipk" ../nanopi_r2s_packages/ 2>/dev/null || true
           done
+          
+          # Check build_dir for packages
+          find build_dir -name "*.ipk" -type f 2>/dev/null | while read ipk; do
+            echo "Found built package: $ipk"
+            cp "$ipk" ../nanopi_r2s_packages/ 2>/dev/null || true
+          done
+          
+          cd ../nanopi_r2s_packages
+          
+          # Count found packages
+          package_count=$(ls -1 *.ipk 2>/dev/null | wc -l)
+          echo "Found $package_count IPK packages"
+          
+          if [ $package_count -gt 0 ]; then
+            # Rename packages with NanoPI R2S prefix
+            for i in $(ls *.ipk 2>/dev/null || true); do 
+              mv "$i" "nanopi-r2s_$i"
+            done
+            echo "Packages renamed with nanopi-r2s prefix"
+          else
+            echo "No IPK packages found, creating dummy file for reference"
+            echo "No packages were successfully compiled" > build_log.txt
+          fi
           
           ls -la
-          echo "NanoPI R2S packages organized successfully"
+          echo "NanoPI R2S packages organized"
 
       - name: Upload NanoPI R2S packages to release
         uses: softprops/action-gh-release@v2
@@ -252,12 +290,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{needs.job_check.outputs.passwall2_version}}
-          files: nanopi_r2s_packages/*.ipk
+          files: |
+            nanopi_r2s_packages/*.ipk
+            nanopi_r2s_packages/*.txt
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
-        if: steps.compile.outputs.status == 'success'
+        if: always()
         with:
           name: nanopi-r2s-passwall2-packages
-          path: nanopi_r2s_packages/
+          path: |
+            nanopi_r2s_packages/
+            sdk/logs/
           retention-days: 7
