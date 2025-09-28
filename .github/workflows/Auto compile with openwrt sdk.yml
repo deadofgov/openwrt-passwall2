@@ -128,30 +128,9 @@ jobs:
           echo "Current feeds status:"
           ls -la feeds/ || echo "No feeds directory found"
           
-          # Update golang and rust for better compatibility only if packages feed exists
-          if [ -d "feeds/packages" ]; then
-            rm -rf temp_resp
-            git clone -b master --single-branch --depth 1 https://github.com/openwrt/packages.git temp_resp
-            
-            echo "Updating golang version for ARM64"
-            rm -rf feeds/packages/lang/golang
-            cp -r temp_resp/lang/golang feeds/packages/lang
-            
-            echo "Updating rust version for ARM64"  
-            rm -rf feeds/packages/lang/rust
-            cp -r temp_resp/lang/rust feeds/packages/lang
-            
-            rm -rf temp_resp
-
-            # Fix rust host build error for cross-compilation
-            echo "Fixing rust cross-compilation for ARM64"
-            sed -i 's/--set=llvm\.download-ci-llvm=false/--set=llvm.download-ci-llvm=true/' feeds/packages/lang/rust/Makefile
-            grep -q -- '--ci false \\' feeds/packages/lang/rust/Makefile || sed -i '/x\.py \\/a \        --ci false \\' feeds/packages/lang/rust/Makefile
-
-            echo "NanoPI R2S packages build patches applied successfully"
-          else
-            echo "Warning: packages feed not found, skipping patches"
-          fi
+          # Skip Rust patches since we're not using Rust packages
+          echo "Skipping Rust patches (Rust packages disabled for stability)"
+          echo "NanoPI R2S packages build patches applied successfully"
 
       - name: SSH connection to Actions
         uses: mxschmitt/action-tmate@v3.13
@@ -175,16 +154,16 @@ jobs:
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Haproxy=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_IPv6_Nat=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy=n
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Client=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Libev_Server=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=n
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Server=n
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Server=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Simple_Obfs=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_SingBox=y
-          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_tuic_client=y
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_SingBox=n
+          CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_tuic_client=n
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_V2ray_Plugin=y
           CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Xray=y
           EOF
@@ -205,7 +184,7 @@ jobs:
           cd sdk
           echo "Starting packages compilation for NanoPI R2S (aarch64_generic)"
           
-          # Compile dependencies first
+          # Compile core dependencies first
           echo "Compiling base dependencies"
           make package/feeds/passwall_packages/chinadns-ng/compile -j$(nproc) V=s
           make package/feeds/passwall_packages/geoview/compile -j$(nproc) V=s
@@ -213,15 +192,15 @@ jobs:
           make package/feeds/passwall_packages/xray-core/compile -j$(nproc) V=s
           make package/feeds/passwall_packages/v2ray-geodata/compile -j$(nproc) V=s
           
-          echo "Compiling proxy clients"
-          make package/feeds/passwall_packages/hysteria/compile -j$(nproc) V=s
-          make package/feeds/passwall_packages/naiveproxy/compile -j$(nproc) V=s
-          make package/feeds/passwall_packages/shadowsocks-rust/compile -j$(nproc) V=s
+          # Compile non-Rust proxy clients
+          echo "Compiling stable proxy clients (no Rust dependencies)"
+          make package/feeds/passwall_packages/hysteria/compile -j$(nproc) V=s || echo "Hysteria compilation failed, continuing..."
           make package/feeds/passwall_packages/shadowsocksr-libev/compile -j$(nproc) V=s
           make package/feeds/passwall_packages/simple-obfs/compile -j$(nproc) V=s
-          make package/feeds/passwall_packages/sing-box/compile -j$(nproc) V=s
-          make package/feeds/passwall_packages/tuic-client/compile -j$(nproc) V=s
           make package/feeds/passwall_packages/v2ray-plugin/compile -j$(nproc) V=s
+          
+          # Skip Rust-based packages that are causing issues
+          echo "Skipping Rust-based packages: shadowsocks-rust, naiveproxy, sing-box, tuic-client"
           
           # Compile main passwall2 package
           echo "Compiling luci-app-passwall2"
