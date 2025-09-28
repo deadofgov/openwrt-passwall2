@@ -104,41 +104,54 @@ jobs:
           cat > feeds.conf.default << EOF
           src-git passwall_packages https://github.com/${{ env.packages }}.git;main
           src-git passwall2 https://github.com/${{ env.passwall2 }}.git;${{ github.ref_name }}
-          src-git base https://github.com/openwrt/openwrt.git;main
-          src-git packages https://github.com/openwrt/packages.git;main
-          src-git luci https://github.com/openwrt/luci.git;main
-          src-git routing https://github.com/openwrt/routing.git;main
-          src-git telephony https://github.com/openwrt/telephony.git;main
+          src-git packages https://github.com/openwrt/packages.git;master
+          src-git luci https://github.com/openwrt/luci.git;master
+          src-git routing https://github.com/openwrt/routing.git;master
+          src-git telephony https://github.com/openwrt/telephony.git;master
           EOF
           
+          echo "Updating feeds..."
           ./scripts/feeds update -a
+          echo "Installing feeds..."
           ./scripts/feeds install -a
+          
+          # Verify feeds are installed
+          echo "Checking feeds directories:"
+          ls -la feeds/
 
       - name: Apply patches for NanoPI R2S
         run: |
           cd sdk
           echo "Applying NanoPI R2S specific patches"
 
-          # Update golang and rust for better compatibility
-          rm -rf temp_resp
-          git clone -b main --single-branch --depth 1 https://github.com/openwrt/packages.git temp_resp
+          # Check if feeds are properly loaded
+          echo "Current feeds status:"
+          ls -la feeds/ || echo "No feeds directory found"
           
-          echo "Updating golang version for ARM64"
-          rm -rf feeds/packages/lang/golang
-          cp -r temp_resp/lang/golang feeds/packages/lang
-          
-          echo "Updating rust version for ARM64"
-          rm -rf feeds/packages/lang/rust
-          cp -r temp_resp/lang/rust feeds/packages/lang
-          
-          rm -rf temp_resp
+          # Update golang and rust for better compatibility only if packages feed exists
+          if [ -d "feeds/packages" ]; then
+            rm -rf temp_resp
+            git clone -b master --single-branch --depth 1 https://github.com/openwrt/packages.git temp_resp
+            
+            echo "Updating golang version for ARM64"
+            rm -rf feeds/packages/lang/golang
+            cp -r temp_resp/lang/golang feeds/packages/lang
+            
+            echo "Updating rust version for ARM64"  
+            rm -rf feeds/packages/lang/rust
+            cp -r temp_resp/lang/rust feeds/packages/lang
+            
+            rm -rf temp_resp
 
-          # Fix rust host build error for cross-compilation
-          echo "Fixing rust cross-compilation for ARM64"
-          sed -i 's/--set=llvm\.download-ci-llvm=false/--set=llvm.download-ci-llvm=true/' feeds/packages/lang/rust/Makefile
-          grep -q -- '--ci false \\' feeds/packages/lang/rust/Makefile || sed -i '/x\.py \\/a \        --ci false \\' feeds/packages/lang/rust/Makefile
+            # Fix rust host build error for cross-compilation
+            echo "Fixing rust cross-compilation for ARM64"
+            sed -i 's/--set=llvm\.download-ci-llvm=false/--set=llvm.download-ci-llvm=true/' feeds/packages/lang/rust/Makefile
+            grep -q -- '--ci false \\' feeds/packages/lang/rust/Makefile || sed -i '/x\.py \\/a \        --ci false \\' feeds/packages/lang/rust/Makefile
 
-          echo "NanoPI R2S packages build patches applied successfully"
+            echo "NanoPI R2S packages build patches applied successfully"
+          else
+            echo "Warning: packages feed not found, skipping patches"
+          fi
 
       - name: SSH connection to Actions
         uses: mxschmitt/action-tmate@v3.13
