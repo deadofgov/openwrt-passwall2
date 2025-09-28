@@ -248,7 +248,7 @@ jobs:
           files: nanopi_r2s_packages/*.ipk
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: steps.compile.outputs.status == 'success'
         with:
           name: nanopi-r2s-passwall2-packages
